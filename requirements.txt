@@ -1,0 +1,31 @@
+# ========================================
+# ECG Diploma PTB-XL Classification
+# Fixed versions for team reproducibility
+# Colab GPU T4/P100 + PyTorch 2.x (Jan 2026)
+# ========================================
+
+# Core ML
+torch>=2.1.0,<2.7.0          # Colab CUDA 12.4 compatible
+torchvision>=0.16.0,<0.22.0  # Image models for ResNet
+torchaudio>=2.1.0            # Audio utils (опционально)
+
+# ECG Data
+wfdb>=4.1.0                  # PTB-XL WFDB format
+
+# Data Processing  
+pandas>=2.0.0,<3.0.0         # Metadata handling
+numpy>=1.24.0,<2.0.0         # Arrays
+scipy>=1.11.0                # Signal processing
+
+# Metrics & Viz
+scikit-learn>=1.3.0          # AUROC, F1
+matplotlib>=3.7.0            # Plots
+seaborn>=0.12.0              # EDA
+
+# Utils
+tqdm>=4.65.0                 # Progress bars
+pyyaml>=6.0                  # Configs
+tensorboard>=2.14.0          # Logging
+
+# Опционально (раскомментировать при использовании)
+# wandb                    # Weights & Biases

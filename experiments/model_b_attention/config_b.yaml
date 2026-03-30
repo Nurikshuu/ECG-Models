@@ -1,0 +1,22 @@
+# Сonfig for Model B (Attention)
+model:
+  name: model_b_attention
+  num_classes: 5
+  encoder_channels: 128
+  attention_type: "se_block"
+  
+data:
+  preproc_dir: data_preprocessed
+  sampling_rate: 100
+  seq_length: 1000
+
+training:
+  seed: 42
+  epochs: 50
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+
+logging:
+  tensorboard: true
+  save_every: 10

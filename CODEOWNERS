@@ -1,0 +1,8 @@
+# CODEOWNERS file
+# These owners will be requested for review when someone opens a pull request
+
+# Требовать review для LOCKED файлов
+/src/preprocess.py @dimash-dot
+/src/data.py @dimash-dot
+/src/eval.py @dimash-dot
+/splits/ @dimash-dot
