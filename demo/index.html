@@ -231,7 +231,7 @@
               <div class="flex items-center gap-2 mb-3">
                 <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#06b6d4"></span>
                 <span class="text-sm font-semibold text-white">InceptionTime</span>
-                <span class="ml-auto text-xs text-[#8b949e]">~3 M &middot; AUROC 0.907</span>
+                <span class="ml-auto text-xs text-[#8b949e]">0.42 M &middot; AUROC 0.907</span>
               </div>
               <div class="space-y-1.5 text-xs">
                 <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">InceptionModule &times;6</span><span class="ml-auto text-[#6e7681]">k=10/20/40</span></div>
@@ -246,7 +246,7 @@
               <div class="flex items-center gap-2 mb-3">
                 <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#fbbf24"></span>
                 <span class="text-sm font-semibold text-white">SE Attention</span>
-                <span class="ml-auto text-xs text-[#8b949e]">~5 M &middot; AUROC 0.906</span>
+                <span class="ml-auto text-xs text-[#8b949e]">2.1 M &middot; AUROC 0.906</span>
               </div>
               <div class="space-y-1.5 text-xs">
                 <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">Per-lead ResNet1d encoder</span><span class="ml-auto text-[#6e7681]">shared weights</span></div>
@@ -261,13 +261,13 @@
               <div class="flex items-center gap-2 mb-3">
                 <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#f43f5e"></span>
                 <span class="text-sm font-semibold text-white">LeadWise GNN</span>
-                <span class="ml-auto text-xs text-[#8b949e]">~2 M &middot; AUROC 0.912</span>
+                <span class="ml-auto text-xs text-[#8b949e]">0.62 M &middot; AUROC 0.912</span>
               </div>
               <div class="space-y-1.5 text-xs">
                 <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Per-lead ResNet1d</span><span class="ml-auto text-[#6e7681]">12 embeddings</span></div>
                 <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Clinical adj. graph</span><span class="ml-auto text-[#6e7681]">12 nodes / ECG anatomy</span></div>
                 <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Graph Attention (GAT)</span><span class="ml-auto text-[#6e7681]">2 layers</span></div>
-                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Global mean pool</span><span class="ml-auto text-[#6e7681]">graph &rarr; vector</span></div>
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Per-class attn readout</span><span class="ml-auto text-[#6e7681]">5 class queries</span></div>
                 <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
               </div>
             </div>
@@ -276,11 +276,11 @@
               <div class="flex items-center gap-2 mb-3">
                 <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#a3a3a3"></span>
                 <span class="text-sm font-semibold text-white">ResNet1d</span>
-                <span class="ml-auto text-xs text-[#8b949e]">~1 M &middot; AUROC 0.905</span>
+                <span class="ml-auto text-xs text-[#8b949e]">0.57 M &middot; AUROC 0.905</span>
               </div>
               <div class="space-y-1.5 text-xs">
-                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Conv1d stem</span><span class="ml-auto text-[#6e7681]">k=15, 64 ch</span></div>
-                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">ResidualBlock1d &times;3</span><span class="ml-auto text-[#6e7681]">64&rarr;128&rarr;256</span></div>
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Conv1d stem</span><span class="ml-auto text-[#6e7681]">k=7, 128 ch</span></div>
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">BasicBlock1d &times;3</span><span class="ml-auto text-[#6e7681]">128 ch &middot; stride 1/2/2</span></div>
                 <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Concat pool</span><span class="ml-auto text-[#6e7681]">avg + max</span></div>
                 <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
               </div>
@@ -341,21 +341,49 @@ function toggleSection(sectionId, headerEl) {
   headerEl.classList.toggle('open', !isOpen);
 }
 
+/* ── Offline banner (GitHub Pages / no backend) ──────────────────────────── */
+let BACKEND_ONLINE = false;
+
+function showOfflineBanner() {
+  const banner = document.createElement('div');
+  banner.id = 'offline-banner';
+  banner.className = 'bg-[#161b22] border border-yellow-600 text-yellow-300 text-sm rounded-lg px-4 py-3 mb-6 flex items-start gap-3';
+  banner.innerHTML = `
+    <span class="text-lg leading-none mt-0.5">&#9888;</span>
+    <div>
+      <strong>Static preview mode</strong> — the Python backend is not running here.<br>
+      <span class="text-yellow-400/80">To use real-time predictions, run <code class="bg-[#0d1117] px-1 rounded">python demo/app.py</code> locally and open <code class="bg-[#0d1117] px-1 rounded">http://localhost:5000</code>.</span>
+    </div>`;
+  const main = document.querySelector('main') || document.body;
+  main.prepend(banner);
+  document.getElementById('status-badge').textContent = 'static preview';
+  document.getElementById('status-badge').classList.remove('bg-emerald-900','text-emerald-300');
+  document.getElementById('status-badge').classList.add('bg-yellow-900','text-yellow-300');
+  // Disable upload
+  const zone = document.getElementById('upload-zone');
+  if (zone) {
+    zone.style.opacity = '0.4';
+    zone.style.pointerEvents = 'none';
+    zone.title = 'Backend not available in static preview';
+  }
+}
+
 /* ── Load model info from backend ────────────────────────────────────────── */
 async function fetchModelInfo() {
   try {
     const r = await fetch('/models');
-    if (!r.ok) return;
+    if (!r.ok) { showOfflineBanner(); return; }
     const info = await r.json();
     const names = Object.keys(info);
     if (names.length === 0) {
       document.getElementById('status-badge').textContent = '⚠ no models loaded';
       return;
     }
+    BACKEND_ONLINE = true;
     document.getElementById('status-badge').textContent =
       `${names.length} model${names.length > 1 ? 's' : ''} ready`;
   } catch(_) {
-    document.getElementById('status-badge').textContent = 'server offline';
+    showOfflineBanner();
   }
 }
 fetchModelInfo();
