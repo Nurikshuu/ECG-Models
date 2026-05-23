@@ -1,0 +1,1050 @@
+﻿\chapter{Models and Methods}
+\label{chap:02}
+\setlength{\parskip}{1em}
+
+\section{Research Design}
+\label{sec:research_design}
+
+\subsection{Problem Formulation}
+
+This study is formulated as a \textbf{comparative supervised multi-label
+classification experiment} on 12-lead electrocardiogram (ECG) signals.
+The clinical motivation is straightforward: a single ECG recording may
+simultaneously exhibit multiple pathological patterns.
+For example, a patient with left ventricular hypertrophy (HYP) may also
+present with conduction disturbances (CD) or ST/T-wave changes (STTC)
+as secondary findings.
+A binary-relevance (multi-label) formulation is therefore more faithful
+to clinical reality than a mutually exclusive (multi-class) assignment,
+which would force the model to choose a single dominant diagnosis
+\cite{ref19,ref7}.
+
+\subsection*{Task Definition}
+
+Given a 10-second, 12-lead ECG signal sampled at 100\,Hz, the model
+must predict a \emph{binary label vector}
+$\mathbf{y} \in \{0,1\}^{5}$ whose components correspond to the five
+PTB-XL diagnostic superclasses:
+
+\begin{itemize}
+  \item \textbf{NORM} --- Normal sinus rhythm
+  \item \textbf{MI}   --- Myocardial Infarction
+  \item \textbf{STTC} --- ST/T-Change
+  \item \textbf{CD}   --- Conduction Disturbance
+  \item \textbf{HYP}  --- Hypertrophy
+\end{itemize}
+
+\noindent Each label $y_c \in \{0,1\}$ is treated as an independent
+binary classification sub-problem; a record may carry zero, one, or
+several positive labels simultaneously.
+This \emph{binary-relevance} decomposition transforms the joint
+multi-label problem into $C = 5$ parallel binary tasks, each optimised
+with its own sigmoid output and Binary Cross-Entropy objective.
+
+\subsection*{Evaluation Protocol}
+
+All five architectures are evaluated under an identical protocol
+implemented in a shared \texttt{PTBXLEvaluator} module to ensure strict
+comparability.
+The primary metric is \emph{macro-averaged AUROC} (Area Under the
+Receiver Operating Characteristic curve), which is the standard
+benchmark metric for PTB-XL \cite{ref6}.
+AUROC is threshold-free and measures the probability that the model
+ranks a randomly chosen positive example above a randomly chosen
+negative example; macro-averaging weights all five classes equally
+regardless of their prevalence.
+
+Supplementary metrics reported are:
+
+\begin{itemize}
+  \item \textbf{Micro AUROC} --- pooled over all labels and samples,
+        giving larger classes more influence.
+  \item \textbf{Macro AUPRC} --- macro-averaged Area Under the
+        Precision-Recall Curve, informative for the class-imbalanced
+        HYP and CD categories.
+  \item $\mathbf{F_{\max}}$ --- maximum F1-score over all classification
+        thresholds, found by sweeping $\tau \in [0,1]$ and reporting
+        $\max_\tau F_1(\tau)$.
+  \item \textbf{Sensitivity} (Recall) and \textbf{Specificity} at the
+        $F_{\max}$ threshold.
+\end{itemize}
+
+\noindent A fixed random seed of 42 is used throughout all experiments
+to guarantee reproducibility across data loading, model initialisation,
+and augmentation.
+The test fold is held out and evaluated only once, after all
+hyperparameter decisions are finalised on the validation fold.
+
+\section{Data Collection}
+\label{sec:data_collection}
+
+\subsection{PTB-XL Dataset}
+
+All experiments are conducted on \textbf{PTB-XL} (Wagner et al., 2020),
+the largest publicly available clinical 12-lead ECG dataset to date
+\cite{ref12}.
+PTB-XL contains 21{,}799 recordings collected from 18{,}869 patients at
+Charit\'{e} -- Universit\"{a}tsmedizin Berlin between 1989 and 1996.
+Each record is 10 seconds long and stored in WFDB format.
+Annotations were performed by up to two cardiologists using standardised
+SCP-ECG codes; in cases of disagreement, a validated automated algorithm
+provided a third opinion \cite{ref12,ref16}.
+
+The dataset is notable for three characteristics that make it the
+de-facto standard for ECG deep learning benchmarking:
+\begin{enumerate}
+  \item \textbf{Scale}: at 21{,}799 recordings it is an order of
+        magnitude larger than most prior ECG datasets.
+  \item \textbf{Label quality}: multi-annotator SCP codes with
+        likelihood scores allow probabilistic label assignment.
+  \item \textbf{Official benchmark split}: a stratified ten-fold
+        cross-validation protocol is distributed with the dataset,
+        enabling reproducible comparison across research groups.
+\end{enumerate}
+
+Key dataset characteristics are summarised in Table~\ref{tab:ptbxl}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{PTB-XL dataset characteristics}
+  \label{tab:ptbxl}
+  \begin{tabular}{ll}
+    \hline
+    \textbf{Property}           & \textbf{Value}                    \\
+    \hline
+    Total recordings            & 21{,}799                          \\
+    Patients                    & 18{,}869                          \\
+    Leads                       & 12 (standard)                     \\
+    Duration per record         & 10 seconds                        \\
+    Sampling rate used          & 100\,Hz                           \\
+    Sampling rate available     & 500\,Hz                           \\
+    Label encoding              & SCP-codes $\to$ 5 superclasses    \\
+    Annotation                  & 2 cardiologists + algorithm       \\
+    Format                      & WFDB (PhysioNet)                  \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsection{Label Encoding}
+
+Raw SCP-codes are mapped to five diagnostic superclasses via the
+\texttt{scp\_statements.csv} file distributed with the dataset.
+Each SCP-code entry includes a field \texttt{diagnostic\_class} which
+identifies the superclass, and a likelihood score in $[0,100]$.
+A record is assigned to superclass $c$ if at least one of its SCP-codes
+maps to $c$ with likelihood $> 0$.
+Formally, let $\mathcal{S}(r)$ be the set of SCP-codes for record $r$
+and $\ell(s)$ the likelihood score of code $s$:
+\begin{equation}
+  y_c^{(r)} = \mathbf{1}\!\left[
+    \exists\, s \in \mathcal{S}(r)\colon
+    \text{class}(s) = c \;\wedge\; \ell(s) > 0
+  \right].
+  \label{eq:label}
+\end{equation}
+
+The mapping is performed using \texttt{MultiLabelBinarizer}, producing a
+binary vector $\mathbf{y} \in \{0,1\}^{5}$ per record.
+Table~\ref{tab:class_dist} shows the resulting class distribution.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Class distribution in PTB-XL (diagnostic superclasses)}
+  \label{tab:class_dist}
+  \begin{tabular}{lrr}
+    \hline
+    \textbf{Class} & \textbf{Positive samples} & \textbf{Prevalence (\%)} \\
+    \hline
+    NORM  & 9{,}528  & 43.7 \\
+    MI    & 5{,}486  & 25.2 \\
+    STTC  & 5{,}250  & 24.1 \\
+    CD    & 4{,}907  & 22.5 \\
+    HYP   & 2{,}655  & 12.2 \\
+    \hline
+    \multicolumn{3}{l}{\footnotesize Totals exceed 100\% due to multi-label co-occurrence.}
+  \end{tabular}
+\end{table}
+
+\noindent The severe class imbalance, particularly for HYP
+(12.2\,\%), is a major challenge.
+AUROC and AUPRC are chosen as primary metrics precisely because they are
+robust to class imbalance; threshold-based metrics such as accuracy are
+misleading under such skewed priors.
+
+\subsection{Data Splits}
+
+PTB-XL provides a stratified ten-fold split via the \texttt{strat\_fold}
+field, where stratification ensures each fold contains a proportional
+representation of all superclasses.
+We follow the official benchmark protocol \cite{ref6}:
+
+\begin{table}[htbp]
+  \centering
+  \caption{Train / validation / test split following the PTB-XL benchmark}
+  \label{tab:splits}
+  \begin{tabular}{lll}
+    \hline
+    \textbf{Subset} & \textbf{Folds} & \textbf{Purpose}            \\
+    \hline
+    Train           & 1--8           & Model optimisation          \\
+    Validation      & 9              & Hyperparameter selection    \\
+    Test            & 10             & Final evaluation (held-out) \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\section{Data Preprocessing}
+\label{sec:preprocessing}
+
+The preprocessing pipeline is implemented in the
+\texttt{PTBXLPreprocessorSOTA} class and applied identically to all three
+subsets before any model-specific processing.
+The pipeline consists of seven sequential steps described below and
+illustrated schematically in Figure~\ref{fig:preprocess_pipeline}.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.85\linewidth}{\centering\vspace{2cm}
+    \textit{[РњРµСЃС‚Рѕ РґР»СЏ СЂРёСЃСѓРЅРєР°: Pipeline РїСЂРµРґРѕР±СЂР°Р±РѕС‚РєРё СЃРёРіРЅР°Р»Р° Р­РљР“]}
+  \vspace{2cm}}}
+  \caption{Preprocessing pipeline applied to each PTB-XL recording.
+    Steps are applied in the order shown; the output is a cached
+    \texttt{float32} array of shape $(12, 1000)$ per record.}
+  \label{fig:preprocess_pipeline}
+\end{figure}
+
+\subsection{Signal Loading and Transposition}
+
+Raw WFDB records are read using the \texttt{wfdb} library, yielding a
+$1000 \times 12$ array (time $\times$ leads at 100\,Hz).
+The array is transposed to $12 \times 1000$ (leads $\times$ time) to
+conform to PyTorch's channel-first convention required by 1-D
+convolutional architectures \cite{ref29,ref21}.
+All subsequent operations act on the $12 \times 1000$ tensor.
+
+\subsection{Length Normalisation}
+
+Each recording is verified to contain exactly 1{,}000 samples
+(10\,s at 100\,Hz).
+Shorter sequences are padded to 1{,}000 samples using edge-padding
+(\texttt{np.pad}, \texttt{mode=`edge'});
+longer sequences are truncated to 1{,}000 samples from the start.
+Edge-padding replicates the last valid sample, which introduces
+less spectral distortion than zero-padding.
+
+\subsection{Bandpass Filtering}
+
+A 4th-order Butterworth bandpass filter with passband
+$[0.5,\, 40]\,\text{Hz}$ is applied to each lead independently using
+zero-phase forward--backward filtering (\texttt{scipy.signal.filtfilt}).
+The transfer function of a 4th-order Butterworth filter is:
+\begin{equation}
+  |H(j\Omega)|^2 = \frac{1}{1 + \left(\Omega / \Omega_c\right)^{2N}},
+  \quad N = 4,
+  \label{eq:butterworth}
+\end{equation}
+where $\Omega_c$ is the $-3\,\text{dB}$ cutoff frequency.
+The lower cutoff at 0.5\,Hz removes baseline wander caused by
+respiratory motion and patient movement;
+the upper cutoff at 40\,Hz suppresses high-frequency noise and
+power-line interference while retaining clinically relevant waveform
+morphology (QRS complexes, P waves, T waves lie within $[0.5, 40]\,\text{Hz}$)
+\cite{ref37,ref23}.
+Forward--backward (\texttt{filtfilt}) application doubles the effective
+filter order to 8, achieving zero phase distortion at the cost of
+increased computational load.
+
+\subsection{Baseline Removal}
+
+After bandpass filtering, the per-lead median is subtracted to eliminate
+any residual DC offset:
+\begin{equation}
+  \hat{x}_{l,t} = x_{l,t} - \mathrm{median}_t(x_{l,\cdot}).
+  \label{eq:baseline}
+\end{equation}
+Using the median rather than the mean makes this step robust to
+impulsive noise (e.g.\ electrode pop artefacts), which would
+artificially shift the mean.
+
+\subsection{Z-Score Normalisation}
+
+Each lead is independently standardised to zero mean and unit variance:
+\begin{equation}
+  \tilde{x}_{l,t} =
+    \frac{x_{l,t} - \mu_l}{\sigma_l + \varepsilon},
+  \qquad \varepsilon = 10^{-8},
+  \label{eq:zscore}
+\end{equation}
+where
+\begin{equation}
+  \mu_l = \frac{1}{T}\sum_{t=1}^{T} x_{l,t},
+  \qquad
+  \sigma_l = \sqrt{\frac{1}{T}\sum_{t=1}^{T}(x_{l,t} - \mu_l)^2},
+  \quad T = 1000.
+  \label{eq:zscore_stats}
+\end{equation}
+The additive $\varepsilon$ prevents division by zero for flat or
+near-flat leads.
+Per-lead normalisation rather than global normalisation is used because
+ECG leads have systematically different amplitude scales (e.g.\ limb
+leads vs.\ precordial leads), and cross-lead amplitude ratios carry
+diagnostic information that global normalisation would distort.
+
+\subsection{Outlier Clipping}
+
+Finally, values outside $[-10\sigma_l,\, +10\sigma_l]$ (evaluated before
+normalisation) are clipped to suppress extreme artefacts without
+discarding the recording entirely:
+\begin{equation}
+  x_{l,t}^{\mathrm{clipped}} = \mathrm{clip}(x_{l,t},\,
+    \mu_l - 10\sigma_l,\, \mu_l + 10\sigma_l).
+  \label{eq:clip}
+\end{equation}
+This step is applied \emph{before} Z-score normalisation in the
+implementation, so the 10-sigma threshold is computed on the
+baseline-corrected signal.
+
+\subsection{Training-Time Augmentations}
+
+Five stochastic augmentations are applied \emph{only to the training set}
+during data loading.
+Each augmentation is applied independently with probability $p = 0.5$,
+following best practices for ECG deep learning \cite{ref7,ref16}.
+The augmentations are composed using a pipeline:
+\begin{equation}
+  x_{\mathrm{aug}} = T_5 \circ T_4 \circ T_3 \circ T_2 \circ T_1 (x),
+  \quad T_i \text{ applied with prob.\ } p = 0.5.
+  \label{eq:augpipeline}
+\end{equation}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Data augmentations applied during training}
+  \label{tab:augmentations}
+  \begin{tabular}{p{3.5cm}p{8.5cm}}
+    \hline
+    \textbf{Augmentation}  & \textbf{Description} \\
+    \hline
+    Gaussian Noise    &
+      Additive white Gaussian noise:
+      $\tilde{x} = x + \mathcal{N}(0,\, \sigma^2 \mathbf{I})$,
+      $\sigma = 0.02$; simulates electrode measurement noise. \\[4pt]
+    Amplitude Scaling &
+      Per-lead multiplicative scale factor:
+      $\tilde{x}_l = \alpha \cdot x_l$,
+      $\alpha \sim \mathcal{U}(0.85,\, 1.15)$;
+      simulates electrode contact variability. \\[4pt]
+    Baseline Shift    &
+      Per-lead additive offset:
+      $\tilde{x}_l = x_l + \delta_l$,
+      $\delta_l \sim \mathcal{U}(-0.05,\, +0.05)$;
+      simulates residual baseline wander. \\[4pt]
+    Time Shift        &
+      Circular shift by a random integer $s \sim \mathcal{U}[-30, +30]$
+      samples:
+      $\tilde{x}_l[t] = x_l[(t - s)\!\mod T]$;
+      simulates R-peak trigger jitter. \\[4pt]
+    Lead Dropout      &
+      Each lead is independently zeroed with probability $p = 0.05$:
+      $\tilde{x}_l = m_l \cdot x_l$,
+      $m_l \sim \mathrm{Bernoulli}(0.95)$;
+      encourages robustness to missing or noisy channels \cite{ref22}. \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\noindent Crucially, augmentations are applied on-the-fly during
+DataLoader iteration, so each training epoch sees a different
+stochastic realisation of every sample.
+Validation and test sets receive no augmentation;
+Test-Time Augmentation (TTA) used for the RetNet model is described
+separately in Section~\ref{subsec:model_d}.
+
+\section{Model Development}
+\label{sec:model_development}
+
+Five neural network architectures of increasing complexity and
+inductive bias were developed and evaluated.
+All share the same training configuration (Table~\ref{tab:training})
+and differ only in their architectural components and inductive biases.
+The five models span a spectrum from a plain CNN baseline
+(Model~A, \texttildelow 0.4M parameters) to a full Retention-based
+sequence model with cross-lead fusion
+(Model~D / RetNet-ECG, 33.5M parameters).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Common training hyperparameters for all models}
+  \label{tab:training}
+  \begin{tabular}{ll}
+    \hline
+    \textbf{Hyperparameter} & \textbf{Value}                           \\
+    \hline
+    Optimiser               & Adam ($\beta_1{=}0.9$, $\beta_2{=}0.999$) \\
+    Learning rate schedule  & Linear warmup (5 epochs) + cosine decay  \\
+    Peak learning rate      & $10^{-3}$                                \\
+    Batch size              & 64                                       \\
+    Maximum epochs          & 50                                       \\
+    Weight decay            & $10^{-4}$                                \\
+    Loss function           & Binary Cross-Entropy (BCE)               \\
+    Early stopping          & Patience 10 (macro AUROC on val)         \\
+    Random seed             & 42                                       \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\noindent \textbf{Loss function.}
+Binary Cross-Entropy is the standard loss for independent multi-label
+problems.
+For a batch of $B$ samples and $C = 5$ classes it decomposes as:
+\begin{equation}
+  \mathcal{L}_{\mathrm{BCE}} =
+    -\frac{1}{BC}\sum_{i=1}^{B}\sum_{c=1}^{C}
+    \Bigl[
+      y_{ic}\log\sigma(\hat{z}_{ic})
+      + (1 - y_{ic})\log\bigl(1 - \sigma(\hat{z}_{ic})\bigr)
+    \Bigr],
+  \label{eq:bce}
+\end{equation}
+where $\hat{z}_{ic}$ is the raw logit for sample $i$ and class $c$,
+and $\sigma(\cdot)$ is the sigmoid function \cite{ref19,ref24}.
+
+\noindent \textbf{Learning rate schedule.}
+The learning rate follows a linear warmup for the first 5 epochs from
+$10^{-6}$ to $10^{-3}$, followed by cosine annealing to $10^{-6}$:
+\begin{equation}
+  \eta_t =
+    \eta_{\min}
+    + \tfrac{1}{2}(\eta_{\max} - \eta_{\min})
+    \left(1 + \cos\!\frac{\pi(t - T_{\mathrm{warm}})}{T_{\max} - T_{\mathrm{warm}}}\right),
+  \label{eq:cosine}
+\end{equation}
+for $t > T_{\mathrm{warm}}$, where $T_{\max} = 50$ epochs and
+$\eta_{\max} = 10^{-3}$.
+
+\subsection{Baseline --- ResNet-1D}
+\label{subsec:model_a}
+
+\subsubsection{Architecture}
+
+The model accepts input tensors of shape $(B, 12, 1000)$ (batch,
+leads, time samples).
+A \emph{reshape trick} is used: the 12-lead signal is reshaped to
+$(B \times 12, 1, 1000)$, treating each lead as an independent
+1-channel time series.
+This allows the backbone to use shared weights across all leads,
+effectively $12\times$ data augmentation at no parameter cost.
+
+The backbone consists of five \texttt{ResidualBlock1d} blocks with the
+following channel progression:
+\begin{equation}
+  \underbrace{1}_{\text{input}} \to
+  \underbrace{32}_{\text{stem}} \to
+  \underbrace{64}_{\text{B1}} \to
+  \underbrace{128}_{\text{B2}} \to
+  \underbrace{256}_{\text{B3}} \to
+  \underbrace{256}_{\text{B4}},
+  \label{eq:cnn_channels}
+\end{equation}
+with strides $(1, 2, 2, 2, 2)$ so the temporal dimension is reduced
+from 1000 to approximately 63.
+Each residual block follows the structure:
+\begin{equation}
+  \mathbf{h} = \mathrm{ReLU}\!\left(
+    \mathrm{SE}\!\left(
+      \mathrm{BN}(\mathrm{Conv}_7(\mathbf{x}))
+    \right) + W_s\mathbf{x}
+  \right),
+  \label{eq:resblock}
+\end{equation}
+where $\mathrm{Conv}_7$ denotes a 1-D convolution with kernel size 7
+(receptive field $\approx 70\,\text{ms}$ at 100\,Hz, sufficient to
+capture a complete QRS complex), $\mathrm{BN}$ is Batch Normalisation,
+$\mathrm{SE}$ is the Squeeze-and-Excitation recalibration (see
+Section~\ref{subsec:model_b}), and $W_s$ is a $1\times 1$ projection
+to match dimensions when the channel count or stride changes.
+
+After the backbone, Global Average Pooling (GAP) collapses the temporal
+dimension:
+\begin{equation}
+  \mathbf{g}_l = \frac{1}{T'}\sum_{t=1}^{T'} \mathbf{h}_{l,t}
+  \in \mathbb{R}^{256},
+  \label{eq:gap}
+\end{equation}
+where $T'$ is the temporal length after striding.
+The per-lead embeddings are averaged across all 12 leads to obtain a
+single 256-dimensional vector, which is passed through a two-layer MLP
+classifier:
+\begin{equation}
+  \hat{\mathbf{z}} = W_2\, \mathrm{GELU}(W_1 \mathbf{g} + \mathbf{b}_1) + \mathbf{b}_2
+  \in \mathbb{R}^5.
+  \label{eq:mlp}
+\end{equation}
+
+\subsubsection{Architecture Figure}
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.85\linewidth}{\centering\vspace{2cm}
+    \textit{[РњРµСЃС‚Рѕ РґР»СЏ СЂРёСЃСѓРЅРєР°: РђСЂС…РёС‚РµРєС‚СѓСЂР° Model A --- CNN Baseline]}
+  \vspace{2cm}}}
+  \caption{Model A (CNN Baseline) architecture.
+    Input $(B, 12, 1000)$ is reshaped to $(B{\times}12, 1, 1000)$
+    and processed by five ResidualBlock1d stages with increasing
+    channel counts. Global average pooling produces per-lead embeddings;
+    lead-mean pooling and a two-layer MLP yield five logits.}
+  \label{fig:model_a}
+\end{figure}
+
+\subsection{Baseline --- InceptionTime}
+\label{subsec:inception}
+
+\subsubsection{Architecture}
+
+Each \textbf{Inception module} applies three parallel 1-D convolutions
+with kernel sizes $k \in \{10, 20, 40\}$ samples alongside a
+MaxPool--Conv shortcut branch.
+A $1\times 1$ bottleneck convolution first reduces the channel count to
+32 before the parallel branches, limiting parameter growth:
+\begin{equation}
+  \mathbf{h} = \mathrm{BN}\!\left(
+    \mathrm{Cat}\!\left[
+      \mathrm{Conv}_{10}(\mathbf{b}),\;
+      \mathrm{Conv}_{20}(\mathbf{b}),\;
+      \mathrm{Conv}_{40}(\mathbf{b}),\;
+      \mathrm{Conv}_1(\mathrm{MaxPool}_3(\mathbf{x}))
+    \right]
+  \right),
+  \label{eq:inception_module}
+\end{equation}
+where $\mathbf{b} = \mathrm{Conv}_1(\mathbf{x})$ is the bottleneck
+output.
+All convolutions use \texttt{padding=`same'} to preserve temporal length.
+The four branches each produce $n = 32$ filters, so the module outputs
+$4n = 128$ channels.
+
+\textbf{Inception blocks} stack three consecutive Inception modules with
+a residual connection:
+\begin{equation}
+  \mathbf{y}_k = \mathrm{ReLU}\!\left(
+    F_k(\mathbf{y}_{k-1}) + W_s\,\mathbf{y}_{k-1}
+  \right),
+  \label{eq:inception_block}
+\end{equation}
+where $F_k$ is the $k$-th depth-3 stack of Inception modules and
+$W_s$ is a shortcut $1\times 1$ convolution.
+Two such Inception blocks are stacked in total.
+
+The same reshape trick as Model~A is applied: input $(B, 12, 1000)$ is
+reshaped to $(B\times 12, 1, 1000)$, each lead processed independently.
+After the encoder, Global Average Pooling followed by lead-mean pooling
+produces a single feature vector for the linear classifier.
+
+\subsubsection{Architecture Figure}
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.85\linewidth}{\centering\vspace{2cm}
+    \textit{[РњРµСЃС‚Рѕ РґР»СЏ СЂРёСЃСѓРЅРєР°: РђСЂС…РёС‚РµРєС‚СѓСЂР° InceptionTime]}
+  \vspace{2cm}}}
+  \caption{InceptionTime architecture.
+    Four parallel branches per Inception module capture morphological
+    patterns at scales 10, 20, and 40 samples, plus a MaxPool shortcut.
+    Two Inception blocks with residual connections are stacked before
+    global average pooling and a linear classifier.}
+  \label{fig:inception}
+\end{figure}
+
+\subsection{Model B --- Squeeze-and-Excitation Channel Attention}
+\label{subsec:model_b}
+
+\subsubsection{Squeeze-and-Excitation Block}
+
+The SE block \cite{ref5} is inserted after each convolutional stage.
+It operates in two steps:
+
+\paragraph{Squeeze.}
+Global average pooling compresses each feature map channel $c$ of width
+$T'$ to a scalar descriptor:
+\begin{equation}
+  s_c = \frac{1}{T'}\sum_{t=1}^{T'} h_{c,t}.
+  \label{eq:squeeze}
+\end{equation}
+
+\paragraph{Excitation.}
+The channel descriptor vector $\mathbf{s} \in \mathbb{R}^C$ is passed
+through a two-layer bottleneck MLP with reduction ratio $r$:
+\begin{equation}
+  \mathbf{e} = \sigma\!\left(
+    W_2\, \mathrm{ReLU}(W_1 \mathbf{s})
+  \right), \quad
+  W_1 \in \mathbb{R}^{C/r \times C},\;
+  W_2 \in \mathbb{R}^{C \times C/r},\;
+  r = 8.
+  \label{eq:excitation}
+\end{equation}
+
+\paragraph{Recalibration.}
+Each channel of the feature map is scaled by its excitation scalar:
+\begin{equation}
+  \tilde{h}_{c,t} = e_c \cdot h_{c,t}.
+  \label{eq:recalibration}
+\end{equation}
+The SE block adds only $2C^2/r$ parameters per stage.
+With $C=256$ and $r=8$ this is $\approx 16{,}384$ parameters---less than
+1\,\% of the backbone---while yielding a measurable AUROC improvement
+\cite{ref8,ref36}.
+
+\subsubsection{Lead Attention Pooling}
+
+After the CNN+SE backbone produces per-lead embeddings
+$\{\mathbf{g}_l\}_{l=1}^{12}$, the 12 embeddings are pooled with
+learned attention weights instead of simple averaging.
+
+A global context vector is first computed:
+\begin{equation}
+  \mathbf{c} = \frac{1}{12}\sum_{l=1}^{12}\mathbf{g}_l \in \mathbb{R}^{256}.
+  \label{eq:global_ctx}
+\end{equation}
+Each lead embedding is concatenated with this global context and passed
+through a small MLP to produce a scalar attention score:
+\begin{equation}
+  a_l = f_\mathrm{att}\!\left(
+    \mathrm{LayerNorm}([\mathbf{g}_l;\, \mathbf{c}])
+  \right),\quad
+  f_\mathrm{att}: \mathbb{R}^{512} \to \mathbb{R}.
+  \label{eq:lead_att_score}
+\end{equation}
+The scores are normalised by a learnable temperature $\tau$:
+\begin{equation}
+  \alpha_l = \frac{\exp(a_l / \tau)}{\sum_{l'=1}^{12}\exp(a_{l'} / \tau)}.
+  \label{eq:lead_softmax}
+\end{equation}
+The attention-weighted embedding, together with max-pooled and
+mean-pooled embeddings, forms a \emph{generalised pooling} vector:
+\begin{equation}
+  \mathbf{p} = \left[
+    \sum_{l=1}^{12}\alpha_l \mathbf{g}_l
+    \;;\;
+    \max_l \mathbf{g}_l
+    \;;\;
+    \frac{1}{12}\sum_{l=1}^{12}\mathbf{g}_l
+  \right] \in \mathbb{R}^{768}.
+  \label{eq:gen_pool}
+\end{equation}
+This concatenation is fed to the two-layer MLP classifier.
+
+\subsubsection{Architecture Figure}
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.85\linewidth}{\centering\vspace{2cm}
+    \textit{[РњРµСЃС‚Рѕ РґР»СЏ СЂРёСЃСѓРЅРєР°: РђСЂС…РёС‚РµРєС‚СѓСЂР° Model B --- SE Attention]}
+  \vspace{2cm}}}
+  \caption{Model B (SE Channel Attention) architecture.
+    The CNN encoder is identical to Model A but with SE blocks after
+    each residual stage. Lead-wise embeddings are pooled via
+    context-aware soft attention; the attention-pooled, max-pooled,
+    and mean-pooled embeddings are concatenated before classification.}
+  \label{fig:model_b}
+\end{figure}
+
+\subsection{Model C --- LeadWise Graph Neural Network}
+\label{subsec:model_c}
+
+\subsubsection{Stage 1: Lead Encoding}
+
+Each of the 12 leads is independently encoded by a shared
+\texttt{LeadWiseResNet1d} backbone---a lead-adapted version of
+ResNet1dWang \cite{ref34}---producing a $d = 128$-dimensional embedding:
+\begin{equation}
+  \mathbf{H} = \mathrm{Encoder}(X) \in \mathbb{R}^{12 \times 128},
+  \label{eq:lead_embed}
+\end{equation}
+where row $l$ of $\mathbf{H}$ is the embedding of lead $l$.
+The encoder uses the same shared weights for all 12 leads
+(parameter sharing), ensuring translational equivariance across leads.
+
+\subsubsection{Clinical Adjacency Graph}
+
+An adjacency matrix $\mathbf{A} \in \{0,1\}^{12 \times 12}$ encodes
+known electrophysiological relationships among the 12 leads:
+
+\begin{itemize}
+  \item \textbf{Frontal leads} (I, II, III, aVR, aVL, aVF): fully
+        connected, reflecting Kirchhoff's voltage law
+        ($\mathrm{I} = \mathrm{II} - \mathrm{III}$,
+        $\mathrm{aVR} = -(I + II)/2$).
+  \item \textbf{Precordial leads} (V1--V6): connected in a chain of
+        neighbours plus one-skip connections
+        ($V_i \leftrightarrow V_{i+2}$), reflecting their
+        spatial arrangement around the chest.
+  \item \textbf{Cross-group edges}: clinically meaningful pairs
+        (I\,в†”\,V5, I\,в†”\,V6, II\,в†”\,V4, aVF\,в†”\,V4,
+        aVL\,в†”\,V5, aVR\,в†”\,V1).
+\end{itemize}
+
+The raw adjacency matrix is symmetrically normalised following
+Kipf \& Welling \cite{ref20}:
+\begin{equation}
+  \hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1/2}
+    (\mathbf{A} + \mathbf{I})
+    \tilde{\mathbf{D}}^{-1/2},
+  \label{eq:gcn_norm}
+\end{equation}
+where $\tilde{\mathbf{D}}_{ii} = \sum_j (A_{ij} + \delta_{ij})$ is the
+degree matrix of the adjacency with self-loops added.
+
+\subsubsection{Graph Attention Network}
+
+Two layers of Graph Attention Network (GAT) \cite{ref24} propagate
+information across the graph.
+For a single GAT layer, the attention coefficient between nodes $i$ and
+$j$ is:
+\begin{equation}
+  e_{ij} = \mathrm{LeakyReLU}\!\left(
+    \mathbf{a}^\top
+    \left[ W\mathbf{h}_i \;\|\; W\mathbf{h}_j \right]
+  \right),
+  \label{eq:gat_energy}
+\end{equation}
+where $W \in \mathbb{R}^{d_h \times d}$ is a learnable weight matrix,
+$\mathbf{a} \in \mathbb{R}^{2d_h}$ is an attention vector, and
+$\|$ denotes concatenation.
+The coefficient is normalised over the neighbourhood
+$\mathcal{N}(i) = \{j : A_{ij} > 0\} \cup \{i\}$:
+\begin{equation}
+  \alpha_{ij} = \frac{\exp(e_{ij})}{\sum_{k \in \mathcal{N}(i)}\exp(e_{ik})}.
+  \label{eq:gat_softmax}
+\end{equation}
+The updated node embedding is the attention-weighted sum over neighbours,
+with multi-head aggregation (4 heads in layer 1, 1 head in layer 2):
+\begin{equation}
+  \mathbf{h}_i' = \Big\|_{m=1}^{M}
+    \mathrm{ELU}\!\left(
+      \sum_{j \in \mathcal{N}(i)} \alpha_{ij}^{(m)} W^{(m)} \mathbf{h}_j
+    \right),
+  \label{eq:gat_update}
+\end{equation}
+where $M$ is the number of attention heads.
+Residual connections are added after each GAT layer:
+\begin{equation}
+  \mathbf{h}^{(k+1)} = \mathrm{LayerNorm}\!\left(
+    \mathbf{h}^{(k+1)}_\mathrm{GAT} + W_r\, \mathbf{h}^{(k)}
+  \right).
+  \label{eq:gat_residual}
+\end{equation}
+
+\subsubsection{Per-Class Attention Readout}
+
+A key feature of the architecture is a per-class attention readout that
+allows each diagnostic class $c$ to attend selectively to the leads most
+informative for that class.
+Learnable query vectors $\mathbf{q}_c \in \mathbb{R}^{d_h}$ are used:
+\begin{equation}
+  s_{c,l} = \frac{\mathbf{q}_c^\top \mathbf{h}_l^{(2)}}{\sqrt{d_h}},
+  \quad
+  \beta_{c,l} = \frac{\exp(s_{c,l})}{\sum_{l'}\exp(s_{c,l'})},
+  \label{eq:class_readout}
+\end{equation}
+\begin{equation}
+  \mathbf{p}_c = \sum_{l=1}^{12} \beta_{c,l}\, \mathbf{h}_l^{(2)}.
+  \label{eq:class_pool}
+\end{equation}
+A two-layer MLP then maps $\mathbf{p}_c$ to a scalar logit $\hat{z}_c$.
+The attention weights $\{\beta_{c,l}\}$ provide explicit per-class
+lead-importance maps that can be used for interpretability
+(explainable AI output).
+
+\subsubsection{Two-Stage Training}
+
+To stabilise GNN training, the model is trained in two stages:
+\begin{enumerate}
+  \item \textbf{Stage 1}: Encoder weights are initialised from the
+        pre-trained ResNet1dWang baseline; the adjacency matrix
+        $\mathbf{A}$ is held fixed.
+        Only the GNN head is updated.
+  \item \textbf{Stage 2}: All components (encoder + GNN head + adjacency)
+        are jointly fine-tuned.
+\end{enumerate}
+Predicted probabilities are subsequently calibrated using
+\emph{temperature scaling}: a single scalar $T_\mathrm{cal}$ is learned
+on the validation set such that $\sigma(\hat{z}_c / T_\mathrm{cal})$
+is better calibrated than $\sigma(\hat{z}_c)$ \cite{ref24}.
+
+\subsubsection{Architecture Figure}
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.85\linewidth}{\centering\vspace{2.5cm}
+    \textit{[РњРµСЃС‚Рѕ РґР»СЏ СЂРёСЃСѓРЅРєР°: РђСЂС…РёС‚РµРєС‚СѓСЂР° Model C --- LeadWise GNN
+    (Dimash РїСЂРёС€Р»С‘С‚ СЃС…РµРјСѓ)]}
+  \vspace{2.5cm}}}
+  \caption{Model C (LeadWise GNN) architecture.
+    A shared LeadWiseResNet1d encoder produces per-lead embeddings.
+    Two GAT layers with residual connections propagate information
+    along the clinical adjacency graph.
+    A per-class attention readout produces class-specific pooled
+    representations before the MLP classifier.}
+  \label{fig:model_c}
+\end{figure}
+
+\subsection{Model D --- RetNet-ECG}
+\label{subsec:model_d}
+
+\subsubsection{MultiScalePatchEmbed}
+
+The raw 12-lead input $(B, 12, 1000)$ is projected into a token
+sequence via an Inception-style patch embedding layer with three
+parallel convolutional kernels of sizes $k \in \{5, 11, 25\}$ samples
+and stride $s = 5$:
+\begin{equation}
+  \mathbf{E} = \mathrm{Conv}_1\!\left(
+    \mathrm{Cat}\!\left[
+      \mathrm{GELU}(\mathrm{Conv}_{5}(x)),\;
+      \mathrm{GELU}(\mathrm{Conv}_{11}(x)),\;
+      \mathrm{GELU}(\mathrm{Conv}_{25}(x))
+    \right]
+  \right) \in \mathbb{R}^{T \times d},
+  \label{eq:patch_embed}
+\end{equation}
+where $T = 200$ tokens per lead ($(1000 - 5)/5 + 1 = 200$),
+$d = d_{\mathrm{model}} = 512$.
+The three branches encode:
+\begin{itemize}
+  \item $k{=}5$: fine-grained QRS morphology details
+  \item $k{=}11$: QRS envelope structure
+  \item $k{=}25$: P/T waves and slow oscillations
+\end{itemize}
+The outputs are summed channel-wise, yielding a sequence of
+$D$-dimensional tokens that encode multiple temporal scales
+simultaneously \cite{ref29,ref31}.
+
+\subsubsection{xPos Positional Encoding}
+
+Position-dependent scaling is injected through xPos rotary encodings
+\cite{ref18}.
+For query/key vectors in each retention head, the position-$t$
+transformation is:
+\begin{equation}
+  \mathrm{xPos}(\mathbf{x}, t) =
+  \begin{bmatrix}
+    x_1 \cos(\theta_1 t) - x_2 \sin(\theta_1 t) \\
+    x_1 \sin(\theta_1 t) + x_2 \cos(\theta_1 t) \\
+    \vdots
+  \end{bmatrix},
+  \quad
+  \theta_k = \frac{1}{10000^{2k/d_h}},
+  \label{eq:xpos}
+\end{equation}
+where $d_h = d / H$ is the head dimension and $H$ is the number of
+heads.
+
+\subsubsection{MultiScaleRetention}
+
+The Retention mechanism replaces self-attention with a linear-complexity
+recurrent formulation that admits both parallel (training) and recurrent
+(inference) computation modes \cite{ref18}.
+For head $m$ with decay rate $\gamma_m$, the causal decay mask is:
+\begin{equation}
+  D_{ij}^{(m)} = \gamma_m^{i-j} \cdot \mathbf{1}[i \ge j],
+  \label{eq:decay_mask}
+\end{equation}
+where $\gamma_m$ is defined by:
+\begin{equation}
+  \gamma_m = 1 - 2^{-(5 + m \cdot 3/H)},
+  \quad m = 0, \ldots, H-1.
+  \label{eq:gamma}
+\end{equation}
+This assigns different decay rates to different heads, allowing the
+multi-head model to attend to both local ($\gamma \approx 0.5$) and
+long-range ($\gamma \approx 0.97$) temporal contexts simultaneously.
+
+The retention output for head $m$ in parallel mode is:
+\begin{equation}
+  \mathrm{Ret}_m(\mathbf{X}) =
+  \frac{(\mathbf{Q}_m \mathbf{K}_m^\top \odot \mathbf{D}^{(m)})
+        \cdot \mathbf{V}_m}
+       {\max\!\left(
+         \bigl|(\mathbf{D}^{(m)} \mathbf{1})\bigr|,\, 1
+       \right)},
+  \label{eq:retention}
+\end{equation}
+where $\mathbf{Q}_m = \mathbf{X} W_Q^{(m)}$,
+$\mathbf{K}_m = \mathbf{X} W_K^{(m)}$,
+$\mathbf{V}_m = \mathbf{X} W_V^{(m)}$,
+all with xPos applied to $\mathbf{Q}_m$ and $\mathbf{K}_m$.
+The denominator normalises by the sum of decay weights to prevent
+output magnitude growth with sequence length.
+
+Multi-scale retention combines $H$ heads with Group Normalisation and
+a gated output projection:
+\begin{equation}
+  \mathrm{MSR}(\mathbf{X}) =
+  W_O\!\left(
+    \mathrm{GN}\!\left(
+      \mathrm{Cat}_{m=1}^{H}\mathrm{Ret}_m(\mathbf{X})
+    \right) \odot \mathrm{SiLU}(W_G \mathbf{X})
+  \right),
+  \label{eq:msr}
+\end{equation}
+where $\mathrm{GN}$ is Group Normalisation with $H$ groups and
+$\mathrm{SiLU}(x) = x \cdot \sigma(x)$ is the Sigmoid Linear Unit.
+
+\subsubsection{RetNetFFN with SwiGLU}
+
+Each Retention block is followed by a Feed-Forward Network using the
+SwiGLU activation \cite{ref18}:
+\begin{equation}
+  \mathrm{SwiGLU}(\mathbf{x}) =
+    \mathrm{SiLU}(W_1 \mathbf{x}) \odot (W_2 \mathbf{x}),
+  \label{eq:swiglu}
+\end{equation}
+followed by a linear projection $W_3$:
+\begin{equation}
+  \mathrm{FFN}(\mathbf{x}) = W_3\!\left(
+    \mathrm{SiLU}(W_1 \mathbf{x}) \odot W_2 \mathbf{x}
+  \right).
+  \label{eq:ffn}
+\end{equation}
+The hidden dimension is $d_{\mathrm{ff}} = 2d_{\mathrm{model}} = 1024$.
+
+\subsubsection{RetNetBlock with Stochastic Depth}
+
+A RetNet block applies MSR and FFN with pre-normalisation and
+DropPath (Stochastic Depth) regularisation:
+\begin{align}
+  \mathbf{x}' &= \mathbf{x} + \mathrm{DropPath}\!\left(
+    \mathrm{MSR}(\mathrm{LN}(\mathbf{x}))
+  \right), \label{eq:retblock1} \\
+  \mathbf{x}'' &= \mathbf{x}' + \mathrm{DropPath}\!\left(
+    \mathrm{FFN}(\mathrm{LN}(\mathbf{x}'))
+  \right). \label{eq:retblock2}
+\end{align}
+DropPath stochastically drops entire residual paths during training:
+\begin{equation}
+  \mathrm{DropPath}(\mathbf{x}; p) =
+  \begin{cases}
+    \mathbf{x} / (1-p) & \text{with probability } 1-p, \\
+    \mathbf{0}          & \text{with probability } p.
+  \end{cases}
+  \label{eq:droppath}
+\end{equation}
+Ten RetNet blocks are stacked with linearly increasing DropPath rates:
+\begin{equation}
+  p_k = p_{\max} \cdot \frac{k}{\max(N-1,\,1)},
+  \quad k = 0, \ldots, N-1,\quad p_{\max} = 0.2.
+  \label{eq:droppath_schedule}
+\end{equation}
+
+\subsubsection{LeadFusionTransformer}
+
+After the temporal RetNet stack processes each lead independently,
+temporal mean-pooling produces a lead-level representation:
+\begin{equation}
+  \mathbf{z}_l = \frac{1}{T}\sum_{t=1}^{T}\mathbf{x}_l^{(N)}
+  \in \mathbb{R}^d, \quad l = 1,\ldots,12.
+  \label{eq:temporal_pool}
+\end{equation}
+A two-layer cross-lead Transformer encoder aggregates information across
+all 12 leads, treating leads as tokens:
+\begin{equation}
+  \mathbf{Z}' = \mathrm{TransformerEncoder}(\mathbf{Z})
+  \in \mathbb{R}^{12 \times d},
+  \label{eq:lead_fusion}
+\end{equation}
+where standard multi-head self-attention ($H = 8$ heads) is used.
+This layer captures spatial inter-lead correlations---e.g.\ reciprocal
+ST changes between inferior and lateral leads---that are beyond the
+reach of single-lead processing \cite{ref24,ref31}.
+A final lead-mean pooling yields the 512-dimensional classification
+vector.
+
+\subsubsection{Inference Enhancements}
+
+Two complementary strategies are employed at inference time:
+
+\begin{itemize}
+  \item \textbf{ModelEMA} (Exponential Moving Average of weights,
+        decay $= 0.9999$): Let $\theta_t$ be model parameters at
+        training step $t$; the EMA maintains:
+        \begin{equation}
+          \tilde{\theta}_t = \delta \cdot \tilde{\theta}_{t-1}
+            + (1 - \delta) \cdot \theta_t,
+          \quad \delta = 0.9999.
+          \label{eq:ema}
+        \end{equation}
+        At inference $\tilde{\theta}$ is used.
+        EMA weights represent a temporally smoothed model, reducing
+        prediction variance and yielding consistent AUROC improvements
+        of +0.3--0.8\,\% \cite{ref10}.
+
+  \item \textbf{Test-Time Augmentation (TTA$\times$15)}: Fifteen
+        independently augmented versions of each test signal (using
+        the same augmentation pipeline as training) are processed and
+        their predicted probabilities are averaged:
+        \begin{equation}
+          \hat{p}_c = \frac{1}{15}\sum_{k=1}^{15}
+            \sigma\!\left(\hat{z}_c^{(k)}\right).
+          \label{eq:tta}
+        \end{equation}
+        This ensemble-within-a-model strategy yields consistent gains
+        in AUROC without requiring multiple trained models
+        \cite{ref7,ref16}.
+\end{itemize}
+
+\subsubsection{Architecture Figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{AITU_Diploma_2025-2026/chapters/chapter02/fig02/fig_2_1.png}
+  \caption{Overview of the RetNet-ECG architecture. From left to
+    right: \textit{MultiScalePatchEmbed} encodes the 12-lead input at
+    three temporal scales ($k \in \{5,11,25\}$, stride 5, yielding
+    $T=200$ tokens); ten stacked RetNet blocks with SwiGLU FFN and
+    linearly increasing DropPath process each lead sequence;
+    \textit{LeadFusionTransformer} (2-layer) aggregates cross-lead
+    context via multi-head self-attention; global lead pooling and
+    a two-layer MLP head produce five-class logits.
+    At inference: ModelEMA weights (decay 0.9999) and
+    TTA$\times$15 are applied.}
+  \label{fig:retnet_architecture}
+\end{figure}
+
+\subsection{Summary of Architectures}
+\label{subsec:arch_summary}
+
+Table~\ref{tab:model_summary} provides a side-by-side overview of the
+five architectures, ordered from simplest to most complex.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Summary of the five architectures compared in this study}
+  \label{tab:model_summary}
+  \begin{tabular}{p{2.8cm}p{3.2cm}p{3.8cm}r}
+    \hline
+    \textbf{Model}   & \textbf{Key Mechanism}
+                     & \textbf{Distinguishing Feature}
+                     & \textbf{Params}                              \\
+    \hline
+    CNN Baseline     & 1-D Conv + GAP
+                     & Lower-bound reference
+                     & $\sim$0.4M                                   \\
+    InceptionTime    & Multi-kernel inception
+                     & Multi-scale temporal features
+                     & $\sim$0.5M                                   \\
+    SE Attention     & SE block + lead attention
+                     & Adaptive channel \& lead re-weighting
+                     & $\sim$0.4M                                   \\
+    LeadWise GNN     & GAT + clinical graph
+                     & Learnable inter-lead topology
+                     & $\sim$0.62M                                  \\
+    RetNet-ECG    & Multi-scale Retention +
+                       cross-lead Transformer
+                     & Linear-complexity sequence model;
+                       TTA$\times$15 \& EMA
+                     & $\sim$33.5M                                  \\
+    \hline
+  \end{tabular}
+\end{table}
+

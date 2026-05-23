@@ -10,13 +10,13 @@
 ## How to run
 
 ```bash
-# Команда для запуска (если применимо)
-python src/train.py --config ...
+# Укажите ноутбук / шаги воспроизведения (если применимо)
+# Например: notebooks/notebook_Damir/model_b_training.ipynb
 ```
 
 ## Config / Seed
 
-- Config: `experiments/<model>/config.yaml`
+- Notebook: 
 - Seed: 
 - Learning rate: 
 - Batch size: 

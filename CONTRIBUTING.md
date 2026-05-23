@@ -30,7 +30,7 @@ docs/readme-update
 **Примеры:**
 ```text
 feat: add model B with attention mechanism
-fix: correct grad_scaler in train.py
+fix: correct grad_scaler in training loop
 exp: model A with label smoothing 0.1
 docs: update SETUP instructions
 ```
@@ -45,7 +45,6 @@ docs: update SETUP instructions
 Следующие файлы образуют ядро проекта. Их изменение требует **обязательного review**:
 - `src/preprocess.py`
 - `src/data.py`
-- `src/train.py`
 - `src/eval.py`
 - `splits/folds.json`
 - `requirements.txt`

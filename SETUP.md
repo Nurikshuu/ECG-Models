@@ -37,17 +37,15 @@ data_preprocessed/
 ```
 
 ## Step 5: Start Development / Training
-The project uses a unified training pipeline inside `src/train.py`.
+Training in this repository is notebook-based. Pick the notebook for your model and run all cells.
 
-### To run the Baseline Model (Model A) locally:
-```bash
-python -m src.train --model model_a_baseline --epochs 50 --batch_size 64
-```
-
-### To develop new models:
-1. Create your model definition in `src/models/` (e.g., `model_b_attention.py`).
-2. Add it to the factory function inside `src/train.py` (in `get_model()` function).
-3. Use the unified `train.py` script to seamlessly train and log your new model!
+Recommended entrypoints:
+- Model A baseline: notebooks/notebook_baseline/model_a_training.ipynb
+- InceptionTime baseline: notebooks/notebook_baseline/train_inception_pro (1).ipynb
+- ResNet1d Wang baseline: notebooks/notebook_Dimash/01_baseline_resnet1d_wang_colab.ipynb
+- Model B attention: notebooks/notebook_Damir/model_b_training.ipynb
+- LeadWise GNN: notebooks/notebook_Dimash/02_leadwise_gnn_model.ipynb
+- RetNet: notebooks/notebook_Nurik/ecg_retnet_v4.ipynb
 
 If you encounter path issues from Jupyter, run `%cd /path/to/ecg-diploma` to ensure `src` is in your working directory.
 

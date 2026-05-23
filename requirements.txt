@@ -8,6 +8,7 @@
 torch>=2.1.0,<2.7.0          # Colab CUDA 12.4 compatible
 torchvision>=0.16.0,<0.22.0  # Image models for ResNet
 torchaudio>=2.1.0            # Audio utils (опционально)
+fastai>=2.7.0                # Used by model_Dimash baselines
 
 # ECG Data
 wfdb>=4.1.0                  # PTB-XL WFDB format

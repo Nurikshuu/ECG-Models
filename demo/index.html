@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECG Classifier Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* ── Base ─────────────────────────────────────────────────────────── */
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── Upload zone ─────────────────────────────────────────────────── */
+    #upload-zone {
+      border: 2px dashed #30363d;
+      transition: border-color .2s, background .2s;
+    }
+    #upload-zone.drag-over {
+      border-color: #818cf8;
+      background: rgba(129,140,248,.06);
+    }
+
+    /* ── ECG canvas wrapper (classic paper look) ─────────────────────── */
+    #ecg-wrap {
+      background: #fffcfc;
+      border-radius: 8px;
+      overflow-x: auto;
+      box-shadow: 0 0 0 1px rgba(200,100,100,.3);
+    }
+    #ecg-canvas { display: block; }
+
+    /* ── Probability bar ─────────────────────────────────────────────── */
+    .prob-bar-track {
+      background: rgba(255,255,255,.08);
+      border-radius: 4px;
+      overflow: hidden;
+      height: 10px;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width .6s cubic-bezier(.4,0,.2,1);
+    }
+
+    /* ── Pulse animation (upload idle) ──────────────────────────────── */
+    @keyframes pulse-slow { 0%,100%{opacity:.6} 50%{opacity:1} }
+    .pulse-slow { animation: pulse-slow 2.5s ease-in-out infinite; }
+
+    /* ── ECG squiggle SVG animation ─────────────────────────────────── */
+    #ecg-idle-path {
+      stroke-dasharray: 600;
+      stroke-dashoffset: 600;
+      animation: draw-ecg 2.5s linear infinite;
+    }
+    @keyframes draw-ecg {
+      0%   { stroke-dashoffset: 600; }
+      100% { stroke-dashoffset: -600; }
+    }
+
+    /* ── Spinner ─────────────────────────────────────────────────────── */
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(129,140,248,.2);
+      border-top-color: #818cf8;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Accordion arrow ─────────────────────────────────────────────── */
+    .arrow { transition: transform .2s; }
+    .open .arrow { transform: rotate(90deg); }
+
+    /* ── Scrollbar styling ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { height: 6px; background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+  </style>
+</head>
+
+<body class="min-h-screen pb-16">
+
+<!-- ═══════════════ HEADER ═══════════════════════════════════════════════ -->
+<header class="border-b border-[#21262d] bg-[#0d1117]/80 backdrop-blur sticky top-0 z-40">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+    <!-- ECG icon -->
+    <svg width="32" height="24" viewBox="0 0 80 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="0,20 18,20 22,6 26,34 30,20 36,20 42,2 48,38 52,20 58,20 62,14 66,26 70,20 80,20"
+                stroke="#818cf8" stroke-width="3" stroke-linejoin="round" fill="none"/>
+    </svg>
+    <div>
+      <h1 class="text-base font-semibold text-white leading-none">ECG Classifier Demo</h1>
+      <p class="text-xs text-[#8b949e] mt-0.5">PTB-XL · 12-lead · 5 classes</p>
+    </div>
+    <div class="ml-auto flex gap-2 text-xs text-[#8b949e]">
+      <span id="status-badge" class="bg-[#21262d] rounded-full px-3 py-1">— no models loaded —</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════ MAIN ═══════════════════════════════════════════════ -->
+<main class="max-w-5xl mx-auto px-4 mt-10">
+
+  <!-- ── UPLOAD CARD ──────────────────────────────────────────────── -->
+  <div class="bg-[#161b22] rounded-xl border border-[#30363d] p-6 mb-8">
+    <h2 class="text-sm font-medium text-[#8b949e] uppercase tracking-widest mb-4">Upload ECG sample</h2>
+
+    <div id="upload-zone"
+         class="rounded-lg flex flex-col items-center justify-center gap-4 py-12 px-6 cursor-pointer select-none"
+         onclick="document.getElementById('file-input').click()">
+      <!-- idle ECG animation -->
+      <svg id="ecg-idle" width="200" height="50" viewBox="0 0 200 50" fill="none" xmlns="http://www.w3.org/2000/svg"
+           class="pulse-slow opacity-60">
+        <polyline id="ecg-idle-path"
+          points="0,25 30,25 34,5 38,45 42,25 60,25 70,2 80,48 88,25 110,25 116,18 122,32 130,25 200,25"
+          stroke="#818cf8" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
+      </svg>
+
+      <div class="text-center">
+        <p class="text-[#e6edf3] font-medium">Drag &amp; drop your ECG file here</p>
+        <p class="text-sm text-[#8b949e] mt-1">or click to browse</p>
+        <p class="text-xs text-[#6e7681] mt-3">
+          Supported: <code class="bg-[#21262d] px-1.5 py-0.5 rounded text-indigo-400">.npy</code>
+          <code class="bg-[#21262d] px-1.5 py-0.5 rounded text-indigo-400 ml-1">.csv</code>
+          &nbsp;·&nbsp; Shape: <code class="bg-[#21262d] px-1.5 py-0.5 rounded text-emerald-400">[ 12 × 1000 ]</code>
+          &nbsp;or&nbsp;
+          <code class="bg-[#21262d] px-1.5 py-0.5 rounded text-emerald-400">[ 1000 × 12 ]</code>
+          &nbsp;·&nbsp; 100 Hz
+        </p>
+      </div>
+
+      <input id="file-input" type="file" accept=".npy,.csv" class="hidden" />
+    </div>
+
+    <!-- error box -->
+    <div id="error-box" class="hidden mt-4 bg-red-950/50 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3"></div>
+  </div>
+
+  <!-- ── SPINNER (shown while loading) ─────────────────────────────── -->
+  <div id="loading" class="hidden flex-col items-center gap-3 my-10">
+    <div class="spinner"></div>
+    <p class="text-sm text-[#8b949e]">Running inference…</p>
+  </div>
+
+  <!-- ── RESULTS (hidden until file processed) ─────────────────────── -->
+  <div id="results" class="hidden">
+
+    <!-- ECG chart ── -->
+    <section class="bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden mb-8">
+      <div id="ecg-header"
+           class="flex items-center gap-2 px-5 py-3 cursor-pointer border-b border-[#30363d] open"
+           onclick="toggleSection('ecg-section', this)">
+        <span class="arrow text-[#8b949e]">▶</span>
+        <h2 class="text-sm font-medium text-white">12-Lead ECG &nbsp;<span id="ecg-filename" class="text-[#8b949e] font-normal"></span></h2>
+        <span class="ml-auto text-xs text-[#6e7681]">10 s · 100 Hz · 12 leads</span>
+      </div>
+      <div id="ecg-section" class="p-4">
+        <div id="ecg-wrap">
+          <canvas id="ecg-canvas"></canvas>
+        </div>
+        <p class="text-xs text-[#6e7681] mt-2 text-center">z-score normalised per lead &nbsp;·&nbsp; red grid = 0.2 s / 0.5 mV (standard paper)</p>
+      </div>
+    </section>
+
+    <!-- Model predictions ── -->
+    <section class="bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden mb-8">
+      <div class="flex items-center gap-2 px-5 py-3 border-b border-[#30363d]">
+        <h2 class="text-sm font-medium text-white">Model Predictions</h2>
+        <span class="ml-auto text-xs text-[#6e7681]">sigmoid probabilities · threshold 0.5</span>
+      </div>
+      <div id="pred-grid" class="p-4 grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3"></div>
+    </section>
+
+    <!-- Comparison table ── -->
+    <section class="bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden mb-8">
+      <div id="cmp-header"
+           class="flex items-center gap-2 px-5 py-3 cursor-pointer border-b border-[#30363d]"
+           onclick="toggleSection('cmp-section', this)">
+        <span class="arrow text-[#8b949e]">▶</span>
+        <h2 class="text-sm font-medium text-white">Model Comparison</h2>
+      </div>
+      <div id="cmp-section" class="hidden p-4 overflow-x-auto">
+        <table id="cmp-table" class="w-full text-sm border-collapse"></table>
+      </div>
+    </section>
+
+    <!-- Architecture ── -->
+    <section class="bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden">
+      <div id="arch-header"
+           class="flex items-center gap-2 px-5 py-3 cursor-pointer border-b border-[#30363d]"
+           onclick="toggleSection('arch-section', this)">
+        <span class="arrow text-[#8b949e]">▶</span>
+        <h2 class="text-sm font-medium text-white">Architecture</h2>
+        <span class="ml-auto text-xs text-[#6e7681]">preprocessing · 5 models</span>
+      </div>
+      <div id="arch-section" class="hidden p-6 space-y-8">
+        <!-- Preprocessing -->
+        <div>
+          <h3 class="text-xs font-semibold uppercase tracking-widest text-[#8b949e] mb-4">Common Preprocessing</h3>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="bg-[#21262d] border border-[#30363d] rounded px-3 py-2 text-center"><span class="text-[#e6edf3] block">.npy / .csv</span><span class="text-[#8b949e]">input file</span></span>
+            <span class="text-[#818cf8] text-lg">&#x2192;</span>
+            <span class="bg-[#21262d] border border-[#30363d] rounded px-3 py-2 text-center"><span class="text-[#e6edf3] block">Shape check</span><span class="text-[#8b949e]">[12&times;1000] or [1000&times;12]</span></span>
+            <span class="text-[#818cf8] text-lg">&#x2192;</span>
+            <span class="bg-[#21262d] border border-[#30363d] rounded px-3 py-2 text-center"><span class="text-[#e6edf3] block">Pad / trim</span><span class="text-[#8b949e]">&rarr; 1000 samples</span></span>
+            <span class="text-[#818cf8] text-lg">&#x2192;</span>
+            <span class="bg-[#21262d] border border-[#30363d] rounded px-3 py-2 text-center"><span class="text-[#e6edf3] block">Z-score norm</span><span class="text-[#8b949e]">per-lead &middot; &mu;=0 &sigma;=1</span></span>
+            <span class="text-[#818cf8] text-lg">&#x2192;</span>
+            <span class="bg-[#0f3d2e] border border-emerald-800 rounded px-3 py-2 text-center"><span class="text-emerald-300 font-mono block">1 &times; 12 &times; 1000</span><span class="text-[#8b949e]">float32 tensor</span></span>
+          </div>
+        </div>
+        <!-- Model architectures -->
+        <div>
+          <h3 class="text-xs font-semibold uppercase tracking-widest text-[#8b949e] mb-4">Model Architectures</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <!-- RetNet -->
+            <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#818cf8"></span>
+                <span class="text-sm font-semibold text-white">RetNet</span>
+                <span class="ml-auto text-xs text-[#8b949e]">33.5 M &middot; AUROC 0.913</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2"><span style="color:#818cf8">&#x25b8;</span><span class="text-[#e6edf3]">MultiScalePatchEmbed</span><span class="ml-auto text-[#6e7681]">k=5/11/25</span></div>
+                <div class="flex items-center gap-2"><span style="color:#818cf8">&#x25b8;</span><span class="text-[#e6edf3]">MultiScaleRetention &times;10</span><span class="ml-auto text-[#6e7681]">H=8, xPos</span></div>
+                <div class="flex items-center gap-2"><span style="color:#818cf8">&#x25b8;</span><span class="text-[#e6edf3]">RetNetFFN &times;10</span><span class="ml-auto text-[#6e7681]">SwiGLU &middot; DropPath</span></div>
+                <div class="flex items-center gap-2"><span style="color:#818cf8">&#x25b8;</span><span class="text-[#e6edf3]">LeadFusionTransformer</span><span class="ml-auto text-[#6e7681]">2-layer cross-lead</span></div>
+                <div class="flex items-center gap-2"><span style="color:#818cf8">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">GAP &rarr; Linear &rarr; 5</span></div>
+              </div>
+            </div>
+            <!-- InceptionTime -->
+            <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#06b6d4"></span>
+                <span class="text-sm font-semibold text-white">InceptionTime</span>
+                <span class="ml-auto text-xs text-[#8b949e]">~3 M &middot; AUROC 0.907</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">InceptionModule &times;6</span><span class="ml-auto text-[#6e7681]">k=10/20/40</span></div>
+                <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">Bottleneck Conv 1&times;1</span><span class="ml-auto text-[#6e7681]">dim reduction</span></div>
+                <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">Residual shortcuts</span><span class="ml-auto text-[#6e7681]">every 3 blocks</span></div>
+                <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">Global Avg Pool</span><span class="ml-auto text-[#6e7681]">temporal squeeze</span></div>
+                <div class="flex items-center gap-2"><span style="color:#06b6d4">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
+              </div>
+            </div>
+            <!-- SE Attention -->
+            <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#fbbf24"></span>
+                <span class="text-sm font-semibold text-white">SE Attention</span>
+                <span class="ml-auto text-xs text-[#8b949e]">~5 M &middot; AUROC 0.906</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">Per-lead ResNet1d encoder</span><span class="ml-auto text-[#6e7681]">shared weights</span></div>
+                <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">SE blocks</span><span class="ml-auto text-[#6e7681]">channel attention</span></div>
+                <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">Cross-lead attention pool</span><span class="ml-auto text-[#6e7681]">12 leads &rarr; 1</span></div>
+                <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">Super-pooling</span><span class="ml-auto text-[#6e7681]">attn + max + mean</span></div>
+                <div class="flex items-center gap-2"><span style="color:#fbbf24">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
+              </div>
+            </div>
+            <!-- LeadWise GNN -->
+            <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#f43f5e"></span>
+                <span class="text-sm font-semibold text-white">LeadWise GNN</span>
+                <span class="ml-auto text-xs text-[#8b949e]">~2 M &middot; AUROC 0.912</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Per-lead ResNet1d</span><span class="ml-auto text-[#6e7681]">12 embeddings</span></div>
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Clinical adj. graph</span><span class="ml-auto text-[#6e7681]">12 nodes / ECG anatomy</span></div>
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Graph Attention (GAT)</span><span class="ml-auto text-[#6e7681]">2 layers</span></div>
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Global mean pool</span><span class="ml-auto text-[#6e7681]">graph &rarr; vector</span></div>
+                <div class="flex items-center gap-2"><span style="color:#f43f5e">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
+              </div>
+            </div>
+            <!-- ResNet1d -->
+            <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#a3a3a3"></span>
+                <span class="text-sm font-semibold text-white">ResNet1d</span>
+                <span class="ml-auto text-xs text-[#8b949e]">~1 M &middot; AUROC 0.905</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Conv1d stem</span><span class="ml-auto text-[#6e7681]">k=15, 64 ch</span></div>
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">ResidualBlock1d &times;3</span><span class="ml-auto text-[#6e7681]">64&rarr;128&rarr;256</span></div>
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Concat pool</span><span class="ml-auto text-[#6e7681]">avg + max</span></div>
+                <div class="flex items-center gap-2"><span style="color:#a3a3a3">&#x25b8;</span><span class="text-[#e6edf3]">Classifier</span><span class="ml-auto text-[#6e7681]">Linear &rarr; 5</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div><!-- /results -->
+</main>
+
+<!-- ═══════════════ JAVASCRIPT ══════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ── Constants ──────────────────────────────────────────────────────────── */
+const CLASSES = ['NORM', 'MI', 'STTC', 'CD', 'HYP'];
+const CLASS_COLORS = {
+  NORM: '#22c55e',   // green
+  MI:   '#ef4444',   // red
+  STTC: '#f97316',   // orange
+  CD:   '#3b82f6',   // blue
+  HYP:  '#a855f7',   // purple
+};
+const CLASS_LABELS = {
+  NORM: 'Normal',
+  MI:   'Myocardial Infarction',
+  STTC: 'ST/T Change',
+  CD:   'Conduction Disturbance',
+  HYP:  'Hypertrophy',
+};
+const MODEL_COLORS = {
+  'RetNet':        '#818cf8',
+  'InceptionTime': '#06b6d4',
+  'SE Attention':  '#fbbf24',
+  'LeadWise GNN':  '#f43f5e',
+  'ResNet1d':      '#a3a3a3',
+};
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function showEl(id)  { const el = document.getElementById(id); el.style.display = ''; el.classList.remove('hidden'); }
+function hideEl(id)  { const el = document.getElementById(id); el.style.display = 'none'; el.classList.add('hidden'); }
+function showFlex(id){ const el = document.getElementById(id); el.style.display = 'flex'; el.classList.remove('hidden'); }
+
+function setError(msg) {
+  const box = document.getElementById('error-box');
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+function clearError() { document.getElementById('error-box').classList.add('hidden'); }
+
+function toggleSection(sectionId, headerEl) {
+  const section = document.getElementById(sectionId);
+  const isOpen  = !section.classList.contains('hidden');
+  section.classList.toggle('hidden', isOpen);
+  headerEl.classList.toggle('open', !isOpen);
+}
+
+/* ── Load model info from backend ────────────────────────────────────────── */
+async function fetchModelInfo() {
+  try {
+    const r = await fetch('/models');
+    if (!r.ok) return;
+    const info = await r.json();
+    const names = Object.keys(info);
+    if (names.length === 0) {
+      document.getElementById('status-badge').textContent = '⚠ no models loaded';
+      return;
+    }
+    document.getElementById('status-badge').textContent =
+      `${names.length} model${names.length > 1 ? 's' : ''} ready`;
+  } catch(_) {
+    document.getElementById('status-badge').textContent = 'server offline';
+  }
+}
+fetchModelInfo();
+
+/* ── Drag-and-drop / file-input ──────────────────────────────────────────── */
+const zone  = document.getElementById('upload-zone');
+const input = document.getElementById('file-input');
+
+zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', ()=> zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (files.length) handleFile(files[0]);
+});
+input.addEventListener('change', () => { if (input.files.length) handleFile(input.files[0]); });
+
+/* ── Main file handler ───────────────────────────────────────────────────── */
+async function handleFile(file) {
+  clearError();
+  hideEl('results');
+  hideEl('loading');
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['npy', 'csv'].includes(ext)) {
+    setError(`Unsupported format ".${ext}". Please upload a .npy or .csv file.`);
+    return;
+  }
+
+  document.getElementById('ecg-filename').textContent = file.name;
+  showFlex('loading');
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/predict', { method: 'POST', body: fd });
+
+    // Read body as text first to avoid "Unexpected end of JSON input"
+    const text = await res.text();
+    if (!text) throw new Error(`Server returned empty response (status ${res.status})`);
+    let json;
+    try { json = JSON.parse(text); }
+    catch(e) { throw new Error(`Invalid server response (${res.status}): ${text.slice(0, 200)}`); }
+
+    if (json.error) throw new Error(json.error);
+
+    hideEl('loading');
+    showEl('results');
+    // Open ECG section by default
+    document.getElementById('ecg-section').classList.remove('hidden');
+    document.getElementById('ecg-header').classList.add('open');
+
+    drawECGCanvas(json.signal, json.leads, json.fs);
+    renderPredictions(json.predictions);
+    renderComparisonTable(json.predictions);
+
+  } catch (err) {
+    hideEl('loading');
+    setError(`Error: ${err.message}`);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ECG CANVAS RENDERER
+   Draws authentic ECG-paper style (pink grid + black trace)
+   ══════════════════════════════════════════════════════════════════════════ */
+function drawECGCanvas(signal, leads, fs) {
+  const canvas = document.getElementById('ecg-canvas');
+  const wrap   = document.getElementById('ecg-wrap');
+  const ctx    = canvas.getContext('2d');
+
+  const LABEL_W   = 52;      // pixels for lead name column
+  const ROW_H     = 88;      // height per lead in pixels
+  const PAD_T     = 8;       // top padding
+  const PAD_B     = 20;      // bottom padding for time labels
+  const nLeads    = leads.length;
+  const nSamples  = signal[0].length;
+  const duration  = nSamples / fs;          // seconds
+
+  // High-DPI support
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = Math.max(wrap.clientWidth - 2, 600);
+  const cssH = nLeads * ROW_H + PAD_T + PAD_B;
+
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  ctx.scale(dpr, dpr);
+
+  const sigW      = cssW - LABEL_W;
+  const pxPerSec  = sigW / duration;
+
+  /* ── Background ─────────────────────────────────────────────────────── */
+  ctx.fillStyle = '#fffcfc';
+  ctx.fillRect(0, 0, cssW, cssH);
+
+  /* ── Grid ───────────────────────────────────────────────────────────── */
+  function vLines(step, color, lw) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = lw;
+    for (let t = 0; t <= duration + 1e-6; t += step) {
+      const x = LABEL_W + t * pxPerSec;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cssH - PAD_B); ctx.stroke();
+    }
+  }
+  // fine 40ms, medium 200ms, large 1s
+  vLines(0.04,  'rgba(240,160,160,0.30)', 0.4);
+  vLines(0.20,  'rgba(220,100,100,0.50)', 0.8);
+  vLines(1.00,  'rgba(200, 60, 60,0.70)', 1.3);
+
+  /* ── Lead rows ──────────────────────────────────────────────────────── */
+  leads.forEach((name, i) => {
+    const yTop    = PAD_T + i * ROW_H;
+    const yBot    = yTop + ROW_H;
+    const yCenter = yTop + ROW_H / 2;
+
+    // Row separator
+    ctx.strokeStyle = 'rgba(200,60,60,0.55)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(LABEL_W, yTop); ctx.lineTo(cssW, yTop); ctx.stroke();
+
+    // Horizontal fine grid (every ROW_H/4)
+    ctx.strokeStyle = 'rgba(235,140,140,0.35)';
+    ctx.lineWidth   = 0.5;
+    [0.25, 0.5, 0.75].forEach(f => {
+      const y = yTop + ROW_H * f;
+      ctx.beginPath(); ctx.moveTo(LABEL_W, y); ctx.lineTo(cssW, y); ctx.stroke();
+    });
+
+    // Zero line (slightly darker)
+    ctx.strokeStyle = 'rgba(200,70,70,0.45)';
+    ctx.lineWidth   = 0.9;
+    ctx.beginPath(); ctx.moveTo(LABEL_W, yCenter); ctx.lineTo(cssW, yCenter); ctx.stroke();
+
+    // Lead label box
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, yTop, LABEL_W - 2, ROW_H);
+    ctx.strokeStyle = 'rgba(200,60,60,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(0, yTop, LABEL_W - 2, ROW_H);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.font      = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, (LABEL_W - 2) / 2, yCenter);
+
+    /* ── Signal trace ─────────────────────────────────────────────── */
+    const sig     = signal[i];
+    const sigMean = sig.reduce((a, v) => a + v, 0) / sig.length;
+    const sigSD   = Math.sqrt(sig.reduce((a, v) => a + (v - sigMean) ** 2, 0) / sig.length) || 1;
+    // Clamp scale so even very flat leads fill ~50% of row height
+    const scaleFactor = Math.min(ROW_H * 0.38 / (2 * sigSD), ROW_H * 0.45);
+
+    ctx.strokeStyle = '#111827';
+    ctx.lineWidth   = 1.3;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    for (let j = 0; j < sig.length; j++) {
+      const x = LABEL_W + (j / (sig.length - 1)) * sigW;
+      const y = yCenter - (sig[j] - sigMean) * scaleFactor;
+      if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+
+  // Bottom row border
+  const yLast = PAD_T + nLeads * ROW_H;
+  ctx.strokeStyle = 'rgba(200,60,60,0.55)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(LABEL_W, yLast); ctx.lineTo(cssW, yLast); ctx.stroke();
+
+  /* ── Time labels ──────────────────────────────────────────────────── */
+  ctx.fillStyle    = '#888';
+  ctx.font         = '10px sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'alphabetic';
+  for (let t = 0; t <= duration; t++) {
+    const x = LABEL_W + t * pxPerSec;
+    ctx.fillText(`${t}s`, x, cssH - 3);
+  }
+  // small ticks every 0.2s
+  ctx.fillStyle = '#bbb';
+  ctx.font      = '8px sans-serif';
+  for (let t = 0.2; t < duration; t += 0.2) {
+    if (Math.abs(t - Math.round(t)) < 0.05) continue; // skip whole seconds
+    const x = LABEL_W + t * pxPerSec;
+    ctx.fillText(`${t.toFixed(1)}`, x, cssH - 3);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PREDICTION CARDS
+   ══════════════════════════════════════════════════════════════════════════ */
+function renderPredictions(predictions) {
+  const grid = document.getElementById('pred-grid');
+  grid.innerHTML = '';
+
+  const modelNames = Object.keys(predictions);
+
+  modelNames.forEach(modelName => {
+    const preds = predictions[modelName];
+    if (preds.error) {
+      grid.insertAdjacentHTML('beforeend', `
+        <div class="bg-[#21262d] rounded-lg border border-[#30363d] p-4">
+          <p class="text-sm font-semibold text-white mb-1">${modelName}</p>
+          <p class="text-xs text-red-400">Error: ${preds.error}</p>
+        </div>`);
+      return;
+    }
+
+    // Top predicted class
+    const topClass = CLASSES.reduce((a, b) => preds[a] > preds[b] ? a : b);
+    const topProb  = preds[topClass];
+    const color    = MODEL_COLORS[modelName] || '#818cf8';
+    const positive = CLASSES.filter(c => preds[c] >= 0.5);
+
+    const card = document.createElement('div');
+    card.className = 'bg-[#21262d] rounded-lg border border-[#30363d] p-4 flex flex-col gap-3';
+    card.innerHTML = `
+      <!-- card header -->
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <div class="flex items-center gap-2 mb-0.5">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${color}"></span>
+            <span class="text-sm font-semibold text-white">${modelName}</span>
+          </div>
+          <span class="text-xs text-[#8b949e]">Test AUROC: <strong class="text-white">${getAUROC(modelName)}</strong></span>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <div class="text-xs text-[#8b949e]">Top class</div>
+          <span class="inline-block text-xs font-bold px-2 py-0.5 rounded mt-0.5"
+                style="background:${CLASS_COLORS[topClass]}22; color:${CLASS_COLORS[topClass]}; border:1px solid ${CLASS_COLORS[topClass]}55">
+            ${topClass}
+          </span>
+        </div>
+      </div>
+
+      <!-- probability bars -->
+      <div class="flex flex-col gap-2">
+        ${CLASSES.map(cls => {
+          const prob = preds[cls] ?? 0;
+          const pct  = (prob * 100).toFixed(1);
+          const col  = CLASS_COLORS[cls];
+          const flag = prob >= 0.5 ? `<span class="text-[10px] font-bold ml-1" style="color:${col}">▲</span>` : '';
+          return `
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-[#8b949e]">${cls}
+                <span class="text-[10px] text-[#6e7681] ml-0.5">${CLASS_LABELS[cls]}</span>
+              </span>
+              <span class="font-mono font-semibold" style="color:${prob>=0.5?col:'#8b949e'}">${pct}%${flag}</span>
+            </div>
+            <div class="prob-bar-track">
+              <div class="prob-bar-fill" data-target="${prob * 100}"
+                   style="width:0%; background:${col}; opacity:${0.5 + prob*0.5}"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- positive flags -->
+      <div class="flex flex-wrap gap-1 mt-1">
+        ${positive.length === 0
+          ? `<span class="text-xs text-[#8b949e]">No class above threshold 0.5</span>`
+          : positive.map(c => `
+              <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                    style="background:${CLASS_COLORS[c]}1a; color:${CLASS_COLORS[c]}; border:1px solid ${CLASS_COLORS[c]}44">
+                ${c}
+              </span>`).join('')}
+      </div>`;
+
+    grid.appendChild(card);
+
+    // Animate bars after a short delay
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        card.querySelectorAll('.prob-bar-fill').forEach(bar => {
+          bar.style.width = bar.dataset.target + '%';
+        });
+      }, 80);
+    });
+  });
+}
+
+function getAUROC(name) {
+  const map = {
+    'RetNet':        '0.913',
+    'InceptionTime': '0.907',
+    'SE Attention':  '0.906',
+    'LeadWise GNN':  '0.912',
+    'ResNet1d':      '0.905',
+  };
+  return map[name] || '—';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPARISON TABLE
+   ══════════════════════════════════════════════════════════════════════════ */
+function renderComparisonTable(predictions) {
+  const table = document.getElementById('cmp-table');
+  const models = Object.keys(predictions).filter(m => !predictions[m].error);
+
+  let html = `
+    <thead>
+      <tr class="border-b border-[#30363d]">
+        <th class="text-left text-xs text-[#8b949e] font-medium py-2 pr-4">Model</th>
+        ${CLASSES.map(c =>
+          `<th class="text-center text-xs font-bold py-2 px-3" style="color:${CLASS_COLORS[c]}">${c}</th>`
+        ).join('')}
+        <th class="text-center text-xs text-[#8b949e] font-medium py-2 px-3">Top</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  models.forEach(name => {
+    const p = predictions[name];
+    const top = CLASSES.reduce((a, b) => p[a] > p[b] ? a : b);
+    const color = MODEL_COLORS[name] || '#818cf8';
+    html += `
+      <tr class="border-b border-[#21262d] hover:bg-[#21262d]/50 transition-colors">
+        <td class="py-2 pr-4 text-sm whitespace-nowrap">
+          <span class="inline-block w-2 h-2 rounded-full mr-2" style="background:${color}"></span>
+          ${name}
+        </td>
+        ${CLASSES.map(c => {
+          const prob = p[c] ?? 0;
+          const pct  = (prob * 100).toFixed(1);
+          const col  = prob >= 0.5 ? CLASS_COLORS[c] : '#8b949e';
+          return `<td class="text-center py-2 px-3 font-mono text-xs" style="color:${col}">${pct}%</td>`;
+        }).join('')}
+        <td class="text-center py-2 px-3">
+          <span class="text-xs font-bold px-2 py-0.5 rounded"
+                style="background:${CLASS_COLORS[top]}22; color:${CLASS_COLORS[top]}">
+            ${top}
+          </span>
+        </td>
+      </tr>`;
+  });
+
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+</script>
+</body>
+</html>
